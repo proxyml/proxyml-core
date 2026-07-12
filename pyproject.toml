@@ -35,6 +35,11 @@ dev = [
     "ruff",
 ]
 
+[project.urls]
+Homepage = "https://proxyml.ai"
+Repository = "https://github.com/proxyml/proxyml-core"
+"Bug Tracker" = "https://github.com/proxyml/proxyml-core/issues"
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
