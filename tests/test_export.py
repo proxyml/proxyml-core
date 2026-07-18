@@ -10,6 +10,7 @@ from proxyml_core.export import (
     PerClassCoefficients,
     PerClassIntercept,
     SurrogateExport,
+    feature_importances_from_export,
     predict_from_export,
     score_export,
 )
@@ -158,3 +159,95 @@ def test_from_dict_accepts_older_version():
     d = export.to_dict()
     d["export_schema_version"] = EXPORT_SCHEMA_VERSION  # same/older is fine
     SurrogateExport.from_dict(d)  # should not raise
+
+
+def test_feature_importances_from_export_binary():
+    export = _regression_export()
+    result = feature_importances_from_export(export)
+    assert result["per_class_importances"] is None
+    importances = {e["feature"]: e for e in result["feature_importances"]}
+    # continuous: signed coefficient preserved
+    assert importances["x"]["coefficient"] == pytest.approx(3.0)
+    assert importances["x"]["abs_coefficient"] == pytest.approx(3.0)
+    # categorical (OHE): mean(abs(category_coefficients)) -> mean(0.5, 0.5) = 0.5
+    assert importances["c"]["coefficient"] == pytest.approx(0.5)
+    assert importances["c"]["abs_coefficient"] == pytest.approx(0.5)
+    # sorted by abs_coefficient descending
+    assert [e["feature"] for e in result["feature_importances"]] == ["x", "c"]
+
+
+def test_feature_importances_from_export_negative_coefficient_stays_signed():
+    export = SurrogateExport(
+        task="regression",
+        intercept=0.0,
+        features=[
+            FeatureExportEntry(name="x", type="continuous", scaler_mean=0.0, scaler_scale=1.0, coefficient=-4.0)
+        ],
+    )
+    result = feature_importances_from_export(export)
+    entry = result["feature_importances"][0]
+    assert entry["coefficient"] == pytest.approx(-4.0)
+    assert entry["abs_coefficient"] == pytest.approx(4.0)
+
+
+def test_feature_importances_from_export_multiclass():
+    export = SurrogateExport(
+        task="classification",
+        classes=["a", "b"],
+        per_class_intercepts=[
+            PerClassIntercept(class_label="a", intercept=0.0),
+            PerClassIntercept(class_label="b", intercept=0.0),
+        ],
+        features=[
+            FeatureExportEntry(
+                name="x",
+                type="continuous",
+                scaler_mean=0.0,
+                scaler_scale=1.0,
+                per_class_coefficients=[
+                    PerClassCoefficients(class_label="a", coefficient=2.0),
+                    PerClassCoefficients(class_label="b", coefficient=-6.0),
+                ],
+            )
+        ],
+    )
+    result = feature_importances_from_export(export)
+    assert result["per_class_importances"] is not None
+    per_class = {cp["class_label"]: cp["importances"] for cp in result["per_class_importances"]}
+    assert per_class["a"][0]["coefficient"] == pytest.approx(2.0)
+    assert per_class["b"][0]["coefficient"] == pytest.approx(-6.0)
+    # top-level aggregate: mean(abs(2.0), abs(-6.0)) = 4.0
+    top = result["feature_importances"][0]
+    assert top["feature"] == "x"
+    assert top["coefficient"] == pytest.approx(4.0)
+    assert top["abs_coefficient"] == pytest.approx(4.0)
+
+
+def test_feature_importances_from_export_multiclass_categorical_collapses_via_mean_abs():
+    export = SurrogateExport(
+        task="classification",
+        classes=["a", "b"],
+        per_class_intercepts=[
+            PerClassIntercept(class_label="a", intercept=0.0),
+            PerClassIntercept(class_label="b", intercept=0.0),
+        ],
+        features=[
+            FeatureExportEntry(
+                name="c",
+                type="categorical",
+                ohe_categories=["x", "y"],
+                per_class_coefficients=[
+                    PerClassCoefficients(class_label="a", category_coefficients=[1.0, -3.0]),
+                    PerClassCoefficients(class_label="b", category_coefficients=[0.0, 0.0]),
+                ],
+            )
+        ],
+    )
+    result = feature_importances_from_export(export)
+    per_class = {cp["class_label"]: cp["importances"] for cp in result["per_class_importances"]}
+    # class "a": mean(abs(1.0), abs(-3.0)) = 2.0
+    assert per_class["a"][0]["coefficient"] == pytest.approx(2.0)
+    assert per_class["a"][0]["abs_coefficient"] == pytest.approx(2.0)
+    assert per_class["b"][0]["coefficient"] == pytest.approx(0.0)
+    # top-level: mean(2.0, 0.0) = 1.0
+    assert result["feature_importances"][0]["coefficient"] == pytest.approx(1.0)

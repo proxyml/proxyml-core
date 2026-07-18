@@ -8,6 +8,7 @@ from proxyml_core.modeling.estimators import (
 )
 from proxyml_core.modeling.extract import extract_export_data
 from proxyml_core.modeling.preprocess import build_preprocessor
+from proxyml_core.modeling.scoring import score_predictions
 
 __all__ = [
     "build_preprocessor",
@@ -18,4 +19,5 @@ __all__ = [
     "extract_hyperparameters",
     "to_json_safe",
     "extract_export_data",
+    "score_predictions",
 ]

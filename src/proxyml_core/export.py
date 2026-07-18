@@ -236,3 +236,72 @@ def predict_from_export(
     prob = 1.0 / (1.0 + math.exp(-score))
     classes = export.classes or ["0", "1"]
     return classes[1] if prob >= 0.5 else classes[0]
+
+
+def _entry_importance(entry: FeatureExportEntry, class_index: int | None) -> tuple[float, float]:
+    """Return (coefficient, abs_coefficient) for one feature, one class (or the whole model if not multiclass).
+
+    Categorical (OHE) features collapse to mean(abs(category_coefficients)) — sign
+    isn't meaningful across one-hot columns, so ``coefficient`` and ``abs_coefficient``
+    are the same value. Other feature types keep the signed coefficient.
+    """
+    if entry.type == "categorical":
+        coefs = (
+            entry.per_class_coefficients[class_index].category_coefficients
+            if class_index is not None
+            else entry.category_coefficients
+        ) or []
+        mean_abs = sum(abs(c) for c in coefs) / len(coefs) if coefs else 0.0
+        return mean_abs, mean_abs
+    coef = (
+        entry.per_class_coefficients[class_index].coefficient
+        if class_index is not None
+        else entry.coefficient
+    ) or 0.0
+    return coef, abs(coef)
+
+
+def feature_importances_from_export(export: SurrogateExport) -> dict[str, Any]:
+    """Compute per-feature importances directly from a ``SurrogateExport`` — pure arithmetic,
+    no fitted sklearn model needed. Lets a report render challenger importances without
+    ever loading a live ``Pipeline``, unlike a server-trained surrogate's report path.
+
+    Mirrors the collapsing/aggregation rules a live-model extraction would use: OHE
+    categorical coefficients collapse via mean(abs(...)); multiclass features aggregate
+    mean(abs(...)) across per-class coefficients for the top-level list.
+
+    Returns ``{"feature_importances": [{"feature","coefficient","abs_coefficient"}, ...],
+    "per_class_importances": [{"class_label","importances":[...]}, ...] | None}``,
+    each list sorted by ``abs_coefficient`` descending.
+    """
+    is_multiclass = export.per_class_intercepts is not None
+
+    if not is_multiclass:
+        rows = []
+        for entry in export.features:
+            coef, abs_coef = _entry_importance(entry, None)
+            rows.append({"feature": entry.name, "coefficient": coef, "abs_coefficient": abs_coef})
+        rows.sort(key=lambda e: -e["abs_coefficient"])
+        return {"feature_importances": rows, "per_class_importances": None}
+
+    per_class = []
+    for i, pci in enumerate(export.per_class_intercepts):
+        rows = []
+        for entry in export.features:
+            coef, abs_coef = _entry_importance(entry, i)
+            rows.append({"feature": entry.name, "coefficient": coef, "abs_coefficient": abs_coef})
+        rows.sort(key=lambda e: -e["abs_coefficient"])
+        per_class.append({"class_label": pci.class_label, "importances": rows})
+
+    feat_abs: dict[str, list[float]] = {}
+    for cp in per_class:
+        for entry in cp["importances"]:
+            feat_abs.setdefault(entry["feature"], []).append(entry["abs_coefficient"])
+    feature_importances = sorted(
+        (
+            {"feature": f, "coefficient": sum(vals) / len(vals), "abs_coefficient": sum(vals) / len(vals)}
+            for f, vals in feat_abs.items()
+        ),
+        key=lambda e: -e["abs_coefficient"],
+    )
+    return {"feature_importances": feature_importances, "per_class_importances": per_class}
