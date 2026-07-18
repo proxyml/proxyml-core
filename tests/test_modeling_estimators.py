@@ -1,4 +1,7 @@
+import warnings
+
 import numpy as np
+import pytest
 
 from proxyml_core.modeling.estimators import (
     binarize_if_probabilities,
@@ -40,6 +43,18 @@ def test_binarize_if_probabilities_passes_through_object_labels():
     assert list(out) == ["yes", "no"]
 
 
+def test_binarize_if_probabilities_rejects_nan():
+    # Casting NaN to int is undefined and previously silently mis-binarized
+    # to 0 instead of raising — must fail loudly instead.
+    with pytest.raises(ValueError, match="NaN or infinite"):
+        binarize_if_probabilities(np.array([0.1, 0.6, np.nan, 0.5]))
+
+
+def test_binarize_if_probabilities_rejects_inf():
+    with pytest.raises(ValueError, match="NaN or infinite"):
+        binarize_if_probabilities(np.array([0.1, 0.6, np.inf, 0.5]))
+
+
 def test_to_json_safe_handles_numpy_types():
     assert to_json_safe(np.array([1, 2, 3])) == [1, 2, 3]
     assert to_json_safe(np.float64(1.5)) == 1.5
@@ -55,6 +70,17 @@ def test_extract_hyperparameters_includes_cv_selected_values():
     params = extract_hyperparameters(reg)
     assert "alpha_" in params
     assert isinstance(params["alpha_"], float)
+
+
+def test_get_default_classifier_fits_without_sklearn_deprecation_warnings():
+    # scoring="accuracy" and use_legacy_attributes=False pin today's sklearn
+    # defaults explicitly, so upgrading sklearn can't silently change fit
+    # behavior and users don't see FutureWarning noise on every fit.
+    X = np.random.RandomState(0).normal(size=(50, 3))
+    y = (X[:, 0] > 0).astype(int)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        get_default_classifier().fit(X, y)
 
 
 def test_get_default_classifier_and_regressor_are_fittable():

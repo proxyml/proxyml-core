@@ -47,6 +47,10 @@ def binarize_if_probabilities(predictions: np.ndarray) -> np.ndarray:
     if predictions.dtype.kind not in "iuf":  # not int/uint/float — already discrete labels
         return predictions
     as_float = predictions.astype(float)
+    if not np.all(np.isfinite(as_float)):
+        # Casting NaN/inf to int is undefined — silently mis-binarizes to 0
+        # instead of raising, so reject it explicitly instead.
+        raise ValueError("predictions must not contain NaN or infinite values")
     if np.all(as_float == as_float.astype(int)):
         return predictions
     return (as_float >= 0.5).astype(int)
@@ -60,6 +64,7 @@ def get_default_classifier() -> BaseEstimator:
         max_iter=500,
         cv=5,
         n_jobs=-1,
+        scoring="accuracy",
         use_legacy_attributes=False,
     )
 

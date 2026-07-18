@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-18
+
+### Fixed
+- `binarize_if_probabilities()` now raises `ValueError` for NaN/infinite
+  predictions instead of silently mis-binarizing them to `0` — casting NaN
+  to int is undefined behavior and previously only surfaced as a cryptic
+  `RuntimeWarning: invalid value encountered in cast`, not an error.
+- `get_default_classifier()` now explicitly sets `scoring="accuracy"` on
+  `LogisticRegressionCV`, silencing an sklearn `FutureWarning` about that
+  default changing in a future sklearn release and pinning today's behavior
+  so it can't change out from under callers on an sklearn upgrade.
+
 ## [0.2.0] - 2026-07-18
 
 ### Added
