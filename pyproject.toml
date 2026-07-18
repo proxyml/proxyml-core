@@ -1,6 +1,6 @@
 [project]
 name = "proxyml-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared schema types, export contract, and modeling code for proxyml and its backend."
 readme = "README.md"
 license = {file = "LICENSE"}
